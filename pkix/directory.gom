@@ -1,0 +1,161 @@
+package pkix;
+
+use ecosystem::asn1;
+use std::utf8;
+
+fn printable(value: string) -> bool {
+    if value.byte_len() == 0 {
+        return false
+    }
+    for octet in value.to_bytes() {
+        if (octet >= 65 && octet <= 90) || (octet >= 97 && octet <= 122)
+            || (octet >= 48 && octet <= 57) {
+            continue
+        }
+        if !Vec::from_array([32, 39, 40, 41, 43, 44, 45, 46, 47, 58, 61, 63]).contains(octet) {
+            return false
+        }
+    }
+    true
+}
+
+fn ia5(value: string) -> bool {
+    if value.byte_len() == 0 {
+        return false
+    }
+    for octet in value.to_bytes() {
+        if octet >= 128 {
+            return false
+        }
+    }
+    true
+}
+
+fn decode_wide(content: Slice[u8], width: isize) -> Result[string, asn1::Error] {
+    if content.len() == 0 || content.len() % width != 0 {
+        return Result::Err(invalid("invalid wide DirectoryString length"))
+    }
+    let output: Vec[u8] = Vec::new();
+    let mut cursor = 0;
+    while cursor < content.len() {
+        let mut scalar: u32 = 0;
+        for index in 0..width {
+            scalar = scalar * 256 + content[cursor + index].to_u32();
+        }
+        if !utf8::valid_scalar(scalar) || (width == 2 && scalar > 65535) {
+            return Result::Err(invalid("invalid DirectoryString scalar"))
+        }
+        let character = char_from_u32(scalar).ok_or(invalid("invalid DirectoryString scalar"))?;
+        output.extend(utf8::encode_char(character));
+        cursor += width;
+    }
+    Result::Ok(string_from_utf8(output).1)
+}
+
+fn encode_wide(value: string, width: isize) -> Result[Vec[u8], asn1::Error] {
+    if value.byte_len() == 0 {
+        return Result::Err(invalid("empty DirectoryString"))
+    }
+    let output: Vec[u8] = Vec::new();
+    for character in value.chars() {
+        let scalar = character.to_u32();
+        if width == 2 && scalar > 65535 {
+            return Result::Err(invalid("BMPString cannot contain supplementary scalar"))
+        }
+        let mut divisor: u32 = if width == 2 {
+            256
+        } else {
+            16777216
+        };
+        for _ in 0..width {
+            output.push((scalar / divisor % 256).to_u8());
+            divisor /= 256;
+        }
+    }
+    Result::Ok(output)
+}
+
+fn decode_directory(value: asn1::Tlv, limits: asn1::Limits) -> Result[DirectoryValue, asn1::Error] {
+    match value.tag {
+        12 => {
+            if value.content.len() == 0 {
+                return Result::Err(invalid("empty UTF8String"))
+            }
+            Result::Ok(
+                DirectoryValue::Utf8(
+                    utf8::decode_slice(value.content.as_slice()).map_err(
+                        |_| invalid("invalid UTF8String"),
+                    )?,
+                ),
+            )
+        },
+        19 => {
+            let text = utf8::decode_slice(value.content.as_slice()).map_err(
+                |_| invalid("invalid PrintableString"),
+            )?;
+            if !printable(text) {
+                return Result::Err(invalid("invalid PrintableString alphabet"))
+            }
+            Result::Ok(DirectoryValue::Printable(text))
+        },
+        22 => {
+            let text = utf8::decode_slice(value.content.as_slice()).map_err(
+                |_| invalid("invalid IA5String"),
+            )?;
+            if !ia5(text) {
+                return Result::Err(invalid("non-ASCII IA5String"))
+            }
+            Result::Ok(DirectoryValue::Ia5(text))
+        },
+        30 => Result::Ok(DirectoryValue::Bmp(decode_wide(value.content.as_slice(), 2)?)),
+        28 => Result::Ok(DirectoryValue::Universal(decode_wide(value.content.as_slice(), 4)?)),
+        20 => if value.content.len() > 0 {
+            Result::Ok(DirectoryValue::Teletex(value.content))
+        } else {
+            Result::Err(invalid("empty TeletexString"))
+        },
+        _ => {
+            let encoded = asn1::encode_tlv(value.tag, value.content.as_slice(), limits)?;
+            asn1::validate_der(encoded.as_slice(), limits)?;
+            Result::Ok(DirectoryValue::Raw(value))
+        },
+    }
+}
+
+fn encode_directory(value: DirectoryValue, limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+    match value {
+        DirectoryValue::Utf8(text) => if text.byte_len() > 0 {
+            asn1::encode_tlv(12, text.to_bytes().as_slice(), limits)
+        } else {
+            Result::Err(invalid("empty UTF8String"))
+        },
+        DirectoryValue::Printable(text) => if printable(text) {
+            asn1::encode_tlv(19, text.to_bytes().as_slice(), limits)
+        } else {
+            Result::Err(invalid("invalid PrintableString alphabet"))
+        },
+        DirectoryValue::Ia5(text) => if ia5(text) {
+            asn1::encode_tlv(22, text.to_bytes().as_slice(), limits)
+        } else {
+            Result::Err(invalid("non-ASCII IA5String"))
+        },
+        DirectoryValue::Bmp(text) => {
+            let content = encode_wide(text, 2)?;
+            asn1::encode_tlv(30, content.as_slice(), limits)
+        },
+        DirectoryValue::Universal(text) => {
+            let content = encode_wide(text, 4)?;
+            asn1::encode_tlv(28, content.as_slice(), limits)
+        },
+        DirectoryValue::Teletex(bytes) => if bytes.len() > 0 {
+            asn1::encode_tlv(20, bytes.as_slice(), limits)
+        } else {
+            Result::Err(invalid("empty TeletexString"))
+        },
+        DirectoryValue::Raw(raw) => {
+            let encoded = asn1::encode_tlv(raw.tag, raw.content.as_slice(), limits)?;
+            asn1::validate_der(encoded.as_slice(), limits)?;
+            Result::Ok(encoded)
+        },
+    }
+}

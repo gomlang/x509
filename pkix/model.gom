@@ -1,0 +1,73 @@
+package pkix;
+
+use ecosystem::asn1;
+
+pub enum DirectoryValue {
+    Utf8(string),
+    Printable(string),
+    Ia5(string),
+    Bmp(string),
+    Universal(string),
+    Teletex(Vec[u8]),
+    Raw(asn1::Tlv),
+}
+
+pub struct Attribute {
+    pub oid: Vec[u64],
+    pub value: DirectoryValue,
+}
+
+pub struct Name {
+    pub rdns: Vec[Vec[Attribute]],
+}
+
+pub struct Extension {
+    pub oid: Vec[u64],
+    pub critical: bool,
+    pub value_der: Vec[u8],
+}
+
+pub struct AlgorithmIdentifier {
+    pub oid: Vec[u64],
+    pub parameters_der: Option[Vec[u8]],
+}
+
+fn failure(kind: asn1::ErrorKind, message: string) -> asn1::Error {
+    asn1::Error { kind, offset: 0, message }
+}
+
+fn invalid(message: string) -> asn1::Error {
+    failure(asn1::ErrorKind::InvalidValue, message)
+}
+
+fn limit(message: string) -> asn1::Error {
+    failure(asn1::ErrorKind::Limit, message)
+}
+
+pub fn common_name_oid() -> Vec[u64] {
+    Vec::from_array([2, 5, 4, 3])
+}
+
+pub fn country_name_oid() -> Vec[u64] {
+    Vec::from_array([2, 5, 4, 6])
+}
+
+pub fn organization_name_oid() -> Vec[u64] {
+    Vec::from_array([2, 5, 4, 10])
+}
+
+pub fn organizational_unit_oid() -> Vec[u64] {
+    Vec::from_array([2, 5, 4, 11])
+}
+
+pub fn basic_constraints_oid() -> Vec[u64] {
+    Vec::from_array([2, 5, 29, 19])
+}
+
+pub fn key_usage_oid() -> Vec[u64] {
+    Vec::from_array([2, 5, 29, 15])
+}
+
+pub fn subject_alt_name_oid() -> Vec[u64] {
+    Vec::from_array([2, 5, 29, 17])
+}

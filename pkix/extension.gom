@@ -1,0 +1,102 @@
+package pkix;
+
+use ecosystem::asn1;
+
+impl Extension {
+    pub fn new_typed(
+        oid: Vec[u64],
+        critical: bool,
+        value: asn1::Value,
+        schema: asn1::Schema,
+        limits: asn1::Limits,
+    ) -> Result[Extension, asn1::Error] {
+        Result::Ok(Extension { oid, critical, value_der: asn1::encode_as(value, schema, limits)? })
+    }
+
+    pub fn decode_value(self: Extension, schema: asn1::Schema, limits: asn1::Limits) -> Result[
+        asn1::Value,
+        asn1::Error,
+    ] {
+        asn1::decode_as(self.value_der.as_slice(), schema, limits)
+    }
+
+    pub fn from_der(input: Slice[u8], limits: asn1::Limits) -> Result[Extension, asn1::Error] {
+        let fields = sequence(input, limits)?;
+        if fields.len() != 2 && fields.len() != 3 {
+            return Result::Err(invalid("extension requires OID and OCTET STRING"))
+        }
+        let oid = oid_value(fields[0], limits)?;
+        let mut critical = false;
+        let value_index = if fields.len() == 3 {
+            if fields[1].tag != 1 || fields[1].content != Vec::from_array([255]) {
+                return Result::Err(
+                    failure(asn1::ErrorKind::NonCanonical, "explicit critical must be TRUE"),
+                )
+            }
+            critical = true;
+            2
+        } else {
+            1
+        };
+        if fields[value_index].tag != 4 {
+            return Result::Err(
+                failure(asn1::ErrorKind::InvalidTag, "extension value must be OCTET STRING"),
+            )
+        }
+        let value_der = fields[value_index].content;
+        asn1::validate_der(value_der.as_slice(), limits)?;
+        Result::Ok(Extension { oid, critical, value_der })
+    }
+
+    pub fn to_der(self: Extension, limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+        asn1::validate_der(self.value_der.as_slice(), limits)?;
+        let fields: Vec[Vec[u8]] = Vec::new();
+        fields.push(oid_tlv(self.oid.as_slice(), limits)?);
+        if self.critical {
+            fields.push(asn1::encode_tlv(1, Vec::from_array([255]).as_slice(), limits)?);
+        }
+        fields.push(asn1::encode_tlv(4, self.value_der.as_slice(), limits)?);
+        container(48, fields, limits)
+    }
+}
+
+pub fn decode_extensions(input: Slice[u8], limits: asn1::Limits) -> Result[
+    Vec[Extension],
+    asn1::Error,
+] {
+    let entries = sequence(input, limits)?;
+    if entries.len() == 0 {
+        return Result::Err(invalid("Extensions SEQUENCE must not be empty"))
+    }
+    let values: Vec[Extension] = Vec::new();
+    let seen: Vec[Vec[u64]] = Vec::new();
+    for entry in entries {
+        let encoded = asn1::encode_tlv(entry.tag, entry.content.as_slice(), limits)?;
+        let extension = Extension::from_der(encoded.as_slice(), limits)?;
+        if seen.contains(extension.oid) {
+            return Result::Err(invalid("duplicate extension OID"))
+        }
+        seen.push(extension.oid.copy());
+        values.push(extension);
+    }
+    Result::Ok(values)
+}
+
+pub fn encode_extensions(values: Vec[Extension], limits: asn1::Limits) -> Result[
+    Vec[u8],
+    asn1::Error,
+] {
+    if values.len() == 0 {
+        return Result::Err(invalid("Extensions SEQUENCE must not be empty"))
+    }
+    let encoded: Vec[Vec[u8]] = Vec::new();
+    let seen: Vec[Vec[u64]] = Vec::new();
+    for extension in values {
+        if seen.contains(extension.oid) {
+            return Result::Err(invalid("duplicate extension OID"))
+        }
+        seen.push(extension.oid.copy());
+        encoded.push(extension.to_der(limits)?);
+    }
+    container(48, encoded, limits)
+}

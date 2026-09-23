@@ -1,0 +1,73 @@
+package pkix;
+
+use ecosystem::asn1;
+
+fn decode_attribute(value: asn1::Tlv, limits: asn1::Limits) -> Result[Attribute, asn1::Error] {
+    if value.tag != 48 {
+        return Result::Err(failure(asn1::ErrorKind::InvalidTag, "RDN entry must be SEQUENCE"))
+    }
+    let fields = asn1::split_tlvs(value.content.as_slice(), limits)?;
+    if fields.len() != 2 {
+        return Result::Err(invalid("attribute must contain OID and value"))
+    }
+    Result::Ok(
+        Attribute {
+            oid: oid_value(fields[0], limits)?,
+            value: decode_directory(fields[1], limits)?,
+        },
+    )
+}
+
+fn encode_attribute(value: Attribute, limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+    container(
+        48,
+        Vec::from_array(
+            [oid_tlv(value.oid.as_slice(), limits)?, encode_directory(value.value, limits)?],
+        ),
+        limits,
+    )
+}
+
+impl Name {
+    pub fn new() -> Name {
+        Name { rdns: Vec::new() }
+    }
+
+    pub fn from_der(input: Slice[u8], limits: asn1::Limits) -> Result[Name, asn1::Error] {
+        let entries = sequence(input, limits)?;
+        let rdns: Vec[Vec[Attribute]] = Vec::new();
+        for entry in entries {
+            if entry.tag != 49 {
+                return Result::Err(failure(asn1::ErrorKind::InvalidTag, "RDN must be SET"))
+            }
+            let encoded = asn1::split_tlvs(entry.content.as_slice(), limits)?;
+            if encoded.len() == 0 {
+                return Result::Err(invalid("RDN SET must not be empty"))
+            }
+            let attributes: Vec[Attribute] = Vec::new();
+            for item in encoded {
+                attributes.push(decode_attribute(item, limits)?);
+            }
+            rdns.push(attributes);
+        }
+        Result::Ok(Name { rdns })
+    }
+
+    pub fn to_der(self: Name, limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+        let rdns: Vec[Vec[u8]] = Vec::new();
+        for rdn in self.rdns {
+            if rdn.len() == 0 {
+                return Result::Err(invalid("RDN SET must not be empty"))
+            }
+            let encoded: Vec[Vec[u8]] = Vec::new();
+            for attribute in rdn {
+                encoded.push(encode_attribute(attribute, limits)?);
+            }
+            encoded.sort_by(|left, right| der_order(left.as_slice(), right.as_slice()));
+            rdns.push(container(49, encoded, limits)?);
+        }
+        let result = container(48, rdns, limits)?;
+        asn1::validate_der(result.as_slice(), limits)?;
+        Result::Ok(result)
+    }
+}

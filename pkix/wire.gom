@@ -1,0 +1,70 @@
+package pkix;
+
+use ecosystem::asn1;
+
+fn append(output: Vec[u8], bytes: Slice[u8], limits: asn1::Limits) -> Result[(), asn1::Error] {
+    if bytes.len() > limits.max_bytes - output.len() {
+        return Result::Err(limit("PKIX DER exceeds byte limit"))
+    }
+    for byte in bytes {
+        output.push(byte);
+    }
+    Result::Ok(())
+}
+
+fn sequence(input: Slice[u8], limits: asn1::Limits) -> Result[Vec[asn1::Tlv], asn1::Error] {
+    asn1::validate_der(input, limits)?;
+    let root = asn1::parse_tlv(input, limits)?;
+    if root.tag != 48 {
+        return Result::Err(failure(asn1::ErrorKind::InvalidTag, "expected SEQUENCE"))
+    }
+    asn1::split_tlvs(root.content.as_slice(), limits)
+}
+
+fn container(tag: u8, encoded: Vec[Vec[u8]], limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+    if encoded.len() > limits.max_elements {
+        return Result::Err(limit("PKIX element count exceeds limit"))
+    }
+    let content: Vec[u8] = Vec::new();
+    for child in encoded {
+        append(content, child.as_slice(), limits)?;
+    }
+    let result = asn1::encode_tlv(tag, content.as_slice(), limits)?;
+    asn1::validate_der(result.as_slice(), limits)?;
+    Result::Ok(result)
+}
+
+fn oid_tlv(arcs: Slice[u64], limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+    let content = asn1::encode_oid(arcs, limits)?;
+    asn1::encode_tlv(6, content.as_slice(), limits)
+}
+
+fn oid_value(value: asn1::Tlv, limits: asn1::Limits) -> Result[Vec[u64], asn1::Error] {
+    if value.tag != 6 {
+        return Result::Err(failure(asn1::ErrorKind::InvalidTag, "expected OBJECT IDENTIFIER"))
+    }
+    asn1::decode_oid(value.content.as_slice(), limits)
+}
+
+fn der_order(left: Slice[u8], right: Slice[u8]) -> isize {
+    let shorter = if left.len() < right.len() {
+        left.len()
+    } else {
+        right.len()
+    };
+    for index in 0..shorter {
+        if left[index] < right[index] {
+            return -1
+        }
+        if left[index] > right[index] {
+            return 1
+        }
+    }
+    if left.len() < right.len() {
+        -1
+    } else if left.len() > right.len() {
+        1
+    } else {
+        0
+    }
+}
