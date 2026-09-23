@@ -1,0 +1,286 @@
+package tests;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix;
+use ecosystem::x509::pkix::{AlgorithmIdentifier, Attribute, DirectoryValue, Extension, Name};
+use std::testing;
+
+fn limits() -> asn1::Limits {
+    asn1::Limits::standard()
+}
+
+fn attribute(oid: Vec[u64], value: DirectoryValue) -> Attribute {
+    Attribute { oid, value }
+}
+
+#[test]
+fn name_der_preserves_rdn_structure_and_known_directory_strings() -> () {
+    let name = Name {
+        rdns: Vec::from_array(
+            [
+                Vec::from_array(
+                    [attribute(pkix::country_name_oid(), DirectoryValue::Printable("US"))],
+                ),
+                Vec::from_array(
+                    [attribute(pkix::organization_name_oid(), DirectoryValue::Utf8("Acme"))],
+                ),
+                Vec::from_array([attribute(pkix::common_name_oid(), DirectoryValue::Utf8("Alice"))]),
+            ],
+        ),
+    };
+    let expected = Vec::from_array(
+        [
+            48,
+            44,
+            49,
+            11,
+            48,
+            9,
+            6,
+            3,
+            85,
+            4,
+            6,
+            19,
+            2,
+            85,
+            83,
+            49,
+            13,
+            48,
+            11,
+            6,
+            3,
+            85,
+            4,
+            10,
+            12,
+            4,
+            65,
+            99,
+            109,
+            101,
+            49,
+            14,
+            48,
+            12,
+            6,
+            3,
+            85,
+            4,
+            3,
+            12,
+            5,
+            65,
+            108,
+            105,
+            99,
+            101,
+        ],
+    );
+    testing::assert(testing::expect_ok(name.to_der(limits()), "name DER") == expected);
+    let decoded = testing::expect_ok(Name::from_der(expected.as_slice(), limits()), "name parse");
+    testing::assert_eq(decoded.rdns.len(), 3);
+    testing::assert_eq(decoded.rdns[2].len(), 1);
+    testing::assert(decoded.rdns[2][0].oid == pkix::common_name_oid());
+    match decoded.rdns[2][0].value {
+        DirectoryValue::Utf8(value) => testing::assert_eq(value, "Alice"),
+        _ => testing::fail("common name string type"),
+    }
+    testing::assert(testing::expect_ok(decoded.to_der(limits()), "name re-encode") == expected);
+}
+
+#[test]
+fn multi_value_rdn_is_sorted_and_wide_strings_round_trip() -> () {
+    let name = Name {
+        rdns: Vec::from_array(
+            [
+                Vec::from_array(
+                    [
+                        attribute(pkix::common_name_oid(), DirectoryValue::Universal("😀")),
+                        attribute(pkix::organization_name_oid(), DirectoryValue::Bmp("中")),
+                    ],
+                ),
+            ],
+        ),
+    };
+    let encoded = testing::expect_ok(name.to_der(limits()), "multi RDN");
+    let decoded = testing::expect_ok(Name::from_der(encoded.as_slice(), limits()), "wide strings");
+    testing::assert_eq(decoded.rdns.len(), 1);
+    testing::assert_eq(decoded.rdns[0].len(), 2);
+    testing::assert(decoded.rdns[0][0].oid == pkix::organization_name_oid());
+    match decoded.rdns[0][0].value {
+        DirectoryValue::Bmp(value) => testing::assert_eq(value, "中"),
+        _ => testing::fail("BMP string"),
+    }
+    match decoded.rdns[0][1].value {
+        DirectoryValue::Universal(value) => testing::assert_eq(value, "😀"),
+        _ => testing::fail("universal string"),
+    }
+    testing::assert(testing::expect_ok(decoded.to_der(limits()), "wide re-encode") == encoded);
+    testing::assert_err(Name { rdns: Vec::from_array([Vec::new()]) }.to_der(limits()));
+    testing::assert_err(
+        Name {
+            rdns: Vec::from_array(
+                [
+                    Vec::from_array(
+                        [attribute(pkix::common_name_oid(), DirectoryValue::Printable("bad@value"))],
+                    ),
+                ],
+            ),
+        }.to_der(limits()),
+    );
+    testing::assert_err(
+        Name {
+            rdns: Vec::from_array(
+                [Vec::from_array([attribute(pkix::common_name_oid(), DirectoryValue::Bmp("😀"))])],
+            ),
+        }.to_der(limits()),
+    );
+}
+
+#[test]
+fn extensions_use_default_false_and_preserve_inner_der() -> () {
+    let inner = Vec::from_array([48, 3, 1, 1, 255]);
+    let extension = Extension {
+        oid: Vec::from_array([2, 5, 29, 19]),
+        critical: true,
+        value_der: inner,
+    };
+    let expected = Vec::from_array([48, 15, 6, 3, 85, 29, 19, 1, 1, 255, 4, 5, 48, 3, 1, 1, 255]);
+    testing::assert(testing::expect_ok(extension.to_der(limits()), "extension") == expected);
+    let parsed = testing::expect_ok(
+        Extension::from_der(expected.as_slice(), limits()),
+        "parse extension",
+    );
+    testing::assert(parsed.critical);
+    testing::assert(parsed.oid == Vec::from_array([2, 5, 29, 19]));
+    testing::assert(parsed.value_der == inner);
+    let typed = testing::expect_ok(
+        Extension::new_typed(
+            Vec::from_array([2, 5, 29, 19]),
+            false,
+            asn1::Value::Sequence(Vec::from_array([asn1::Value::Boolean(true)])),
+            asn1::Schema::Sequence(Vec::from_array([asn1::Schema::Boolean])),
+            limits(),
+        ),
+        "typed extension",
+    );
+    let encoded = testing::expect_ok(typed.to_der(limits()), "default critical");
+    testing::assert(encoded == Vec::from_array([48, 12, 6, 3, 85, 29, 19, 4, 5, 48, 3, 1, 1, 255]));
+    testing::assert_ok(
+        typed.decode_value(
+            asn1::Schema::Sequence(Vec::from_array([asn1::Schema::Boolean])),
+            limits(),
+        ),
+    );
+    testing::assert_err(typed.decode_value(asn1::Schema::Integer, limits()));
+    testing::assert_err(
+        Extension::from_der(
+            Vec::from_array([48, 15, 6, 3, 85, 29, 19, 1, 1, 0, 4, 5, 48, 3, 1, 1, 255]).as_slice(),
+            limits(),
+        ),
+    );
+}
+
+#[test]
+fn extension_collection_and_algorithm_parameters_are_bounded() -> () {
+    let first = Extension {
+        oid: Vec::from_array([2, 5, 29, 19]),
+        critical: false,
+        value_der: Vec::from_array([5, 0]),
+    };
+    let second = Extension {
+        oid: Vec::from_array([2, 5, 29, 15]),
+        critical: true,
+        value_der: Vec::from_array([5, 0]),
+    };
+    let encoded = testing::expect_ok(
+        pkix::encode_extensions(Vec::from_array([first, second]), limits()),
+        "extensions",
+    );
+    let decoded = testing::expect_ok(
+        pkix::decode_extensions(encoded.as_slice(), limits()),
+        "parse extensions",
+    );
+    testing::assert_eq(decoded.len(), 2);
+    testing::assert_err(pkix::encode_extensions(Vec::from_array([first, first]), limits()));
+    testing::assert_err(pkix::decode_extensions(Vec::from_array([48, 0]).as_slice(), limits()));
+    testing::assert_err(
+        Extension {
+            oid: Vec::from_array([2, 5, 29, 19]),
+            critical: false,
+            value_der: Vec::from_array([5, 0, 5, 0]),
+        }.to_der(limits()),
+    );
+    let algorithm = AlgorithmIdentifier {
+        oid: Vec::from_array([1, 2, 840, 113549, 1, 1, 11]),
+        parameters_der: Option::Some(Vec::from_array([5, 0])),
+    };
+    let expected = Vec::from_array([48, 13, 6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 11, 5, 0]);
+    testing::assert(testing::expect_ok(algorithm.to_der(limits()), "algorithm") == expected);
+    testing::assert(
+        testing::expect_ok(
+            AlgorithmIdentifier::from_der(expected.as_slice(), limits()),
+            "parse algorithm",
+        ).oid
+            == algorithm.oid,
+    );
+    let mut restricted = limits();
+    restricted.max_bytes = 10;
+    testing::assert_err(algorithm.to_der(restricted));
+    restricted = limits();
+    restricted.max_elements = 2;
+    testing::assert_err(algorithm.to_der(restricted));
+}
+
+#[test]
+fn malformed_rdn_and_directory_encodings_fail_recoverably() -> () {
+    testing::assert_err(Name::from_der(Vec::from_array([48, 2, 49, 0]).as_slice(), limits()));
+    testing::assert_err(Name::from_der(Vec::from_array([48, 2, 48, 0]).as_slice(), limits()));
+    testing::assert_err(
+        Name::from_der(
+            Vec::from_array(
+                [
+                    48,
+                    22,
+                    49,
+                    20,
+                    48,
+                    8,
+                    6,
+                    3,
+                    85,
+                    4,
+                    10,
+                    12,
+                    1,
+                    90,
+                    48,
+                    8,
+                    6,
+                    3,
+                    85,
+                    4,
+                    3,
+                    12,
+                    1,
+                    65,
+                ],
+            ).as_slice(),
+            limits(),
+        ),
+    );
+    testing::assert_err(
+        Name::from_der(
+            Vec::from_array([48, 13, 49, 11, 48, 9, 6, 3, 85, 4, 3, 30, 2, 216, 0]).as_slice(),
+            limits(),
+        ),
+    );
+    testing::assert_err(
+        Name::from_der(
+            Vec::from_array([48, 12, 49, 10, 48, 8, 6, 3, 85, 4, 3, 19, 1, 64]).as_slice(),
+            limits(),
+        ),
+    );
+}
