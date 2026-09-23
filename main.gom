@@ -1,0 +1,35 @@
+package main;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix;
+use ecosystem::x509::pkix::{Attribute, DirectoryValue, Name};
+use std::testing;
+
+pub fn exercise() -> () {
+    let name = Name {
+        rdns: Vec::from_array(
+            [
+                Vec::from_array(
+                    [
+                        Attribute {
+                            oid: pkix::common_name_oid(),
+                            value: DirectoryValue::Utf8("registry.example"),
+                        },
+                    ],
+                ),
+            ],
+        ),
+    };
+    let der = testing::expect_ok(name.to_der(asn1::Limits::standard()), "name DER");
+    let parsed = testing::expect_ok(
+        Name::from_der(der.as_slice(), asn1::Limits::standard()),
+        "name",
+    );
+    testing::assert_eq(parsed.rdns.len(), 1);
+    testing::assert(parsed.rdns[0][0].oid == pkix::common_name_oid());
+}
+
+fn main() -> () {
+    exercise();
+    println("x509 pkix consumer: ok");
+}
