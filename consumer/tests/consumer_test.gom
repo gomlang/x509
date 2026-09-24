@@ -1,0 +1,38 @@
+package tests;
+
+use consumer::x509 as app;
+use ecosystem::asn1;
+use ecosystem::x509::pkix;
+use ecosystem::x509::pkix::{Extension};
+use std::testing;
+
+#[test]
+fn registry_name_and_typed_extension() -> () {
+    app::exercise();
+    let extension = testing::expect_ok(
+        Extension::new_typed(
+            Vec::from_array([2, 5, 29, 19]),
+            true,
+            asn1::Value::Sequence(Vec::from_array([asn1::Value::Boolean(true)])),
+            asn1::Schema::Sequence(Vec::from_array([asn1::Schema::Boolean])),
+            asn1::Limits::standard(),
+        ),
+        "typed extension",
+    );
+    let encoded = testing::expect_ok(extension.to_der(asn1::Limits::standard()), "extension DER");
+    let parsed = testing::expect_ok(
+        Extension::from_der(encoded.as_slice(), asn1::Limits::standard()),
+        "extension parse",
+    );
+    testing::assert(parsed.critical);
+    testing::assert(parsed.oid == Vec::from_array([2, 5, 29, 19]));
+    testing::assert_ok(
+        parsed.decode_value(
+            asn1::Schema::Sequence(Vec::from_array([asn1::Schema::Boolean])),
+            asn1::Limits::standard(),
+        ),
+    );
+    testing::assert_err(
+        pkix::decode_extensions(Vec::from_array([48, 0]).as_slice(), asn1::Limits::standard()),
+    );
+}
