@@ -1,6 +1,0 @@
-[module]
-path = "consumer::x509"
-
-[dependencies]
-"ecosystem::x509" = "0.1.0"
-"ecosystem::asn1" = "0.1.0"

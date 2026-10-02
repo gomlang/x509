@@ -1,6 +1,6 @@
 package tests;
 
-use consumer::x509 as app;
+use ecosystem::x509::examples::basic as app;
 use ecosystem::asn1;
 use ecosystem::x509::pkix;
 use ecosystem::x509::pkix::{Extension};

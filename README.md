@@ -24,4 +24,16 @@ fn subject_der() -> Result[Vec[u8], asn1::Error] {
 
 The default ASN.1 limits are 1 MiB of input/output, 32 levels, 10,000 elements, and 64 OID arcs; callers can lower them. Known primitive types and string forms are validated. For unknown raw values, the library validates DER tag/length structure and nested constructed elements but cannot validate type-specific constraints without a schema. An extension's OCTET STRING must contain exactly one structurally valid DER value. Errors are recoverable `asn1::Error` values. Names are represented as data, not normalized for RFC 4514 comparison or identity matching.
 
-Run `(cd ../verification && just ecosystem-test x509)` from this library repository to verify the library and independent versioned consumer.
+Run `(cd ../verification && just ecosystem-test x509)` from this library repository to verify the library and example, including independent downstream verification.
+
+## Development and examples
+
+Requires GoML 0.1.55 or newer. The `examples/basic/` example shares the root manifest and its dependencies. From the library root, run:
+
+```sh
+goml run --example basic
+goml test
+goml verify --timeout 300s
+```
+
+`goml test` builds the example and runs its tests. `goml verify` repeats the example checks as an independent module against an isolated registry snapshot. `(cd ../verification && just ecosystem-test x509)` also retains the library-specific smoke and compatibility checks.
