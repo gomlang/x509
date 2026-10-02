@@ -13,6 +13,16 @@ Path lengths are bounded to nonnegative `i64` values. Use the returned DER as
 `Extension.value_der` with `basic_constraints_oid()`. The caller still enforces
 certificate context, key usage, criticality and chain path-length semantics.
 
+`KeyUsage` exposes all nine [RFC 5280 key-usage flags](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2.1.3):
+`digital_signature`, `content_commitment`, `key_encipherment`, `data_encipherment`,
+`key_agreement`, `key_cert_sign`, `crl_sign`, `encipher_only`, and `decipher_only`.
+Start from `KeyUsage::new()` and set flags with a struct update. `to_der` encodes a
+canonical named BIT STRING; `from_der` rejects unknown bits, all-zero values,
+nonzero padding and trailing zero bits. At least one flag must be set when
+encoding. Use `key_usage_oid()` and `Extension.value_der` to carry the value.
+Algorithm-specific flag combinations, CA consistency and trust remain caller
+policy; this type does not reject combinations the RFC leaves unrestricted.
+
 `Extension` preserves the OID, critical flag, and the DER value inside its OCTET STRING. A false critical flag is omitted as the ASN.1 default; a decoder rejects an explicitly encoded false. `new_typed` and `decode_value` apply a caller-supplied `asn1::Schema` to the inner value. `encode_extensions` and `decode_extensions` handle the nonempty extension SEQUENCE and reject duplicate OIDs. `AlgorithmIdentifier` keeps optional parameters as explicit DER bytes; it does not infer algorithm-specific parameter rules.
 
 ```goml

@@ -1,0 +1,108 @@
+package pkix;
+
+use ecosystem::asn1;
+
+#[derive(Debug, PartialEq)]
+pub struct KeyUsage {
+    pub digital_signature: bool,
+    pub content_commitment: bool,
+    pub key_encipherment: bool,
+    pub data_encipherment: bool,
+    pub key_agreement: bool,
+    pub key_cert_sign: bool,
+    pub crl_sign: bool,
+    pub encipher_only: bool,
+    pub decipher_only: bool,
+}
+
+impl KeyUsage {
+    pub fn new() -> KeyUsage {
+        KeyUsage {
+            digital_signature: false,
+            content_commitment: false,
+            key_encipherment: false,
+            data_encipherment: false,
+            key_agreement: false,
+            key_cert_sign: false,
+            crl_sign: false,
+            encipher_only: false,
+            decipher_only: false,
+        }
+    }
+
+    pub fn to_der(self: KeyUsage, limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+        let flags = [
+            self.digital_signature,
+            self.content_commitment,
+            self.key_encipherment,
+            self.data_encipherment,
+            self.key_agreement,
+            self.key_cert_sign,
+            self.crl_sign,
+            self.encipher_only,
+            self.decipher_only,
+        ];
+        let mut last = -1;
+        for index in 0..9 {
+            if flags[index] {
+                last = index;
+            }
+        }
+        if last < 0 {
+            return Result::Err(invalid("KeyUsage requires at least one bit"))
+        }
+        let content: Vec[u8] = Vec::from_array([(7 - last % 8).to_u8()]);
+        for _ in 0..last / 8 + 1 {
+            content.push(0);
+        }
+        for index in 0..9 {
+            if flags[index] {
+                content[1 + index / 8] |= 128.to_u8() >> (index % 8).to_u8();
+            }
+        }
+        let result = asn1::encode_tlv(3, content.as_slice(), limits)?;
+        asn1::validate_der(result.as_slice(), limits)?;
+        Result::Ok(result)
+    }
+
+    pub fn from_der(input: Slice[u8], limits: asn1::Limits) -> Result[KeyUsage, asn1::Error] {
+        asn1::validate_der(input, limits)?;
+        let value = asn1::parse_tlv(input, limits)?;
+        if value.tag != 3 {
+            return Result::Err(failure(asn1::ErrorKind::InvalidTag, "KeyUsage must be BIT STRING"))
+        }
+        if value.content.len() < 2 || value.content.len() > 3 {
+            return Result::Err(invalid("KeyUsage requires one to nine named bits"))
+        }
+        let unused = value.content[0];
+        let last = value.content[value.content.len() - 1];
+        if last == 0 || (last & (1.to_u8() << unused)) == 0 {
+            return Result::Err(
+                failure(asn1::ErrorKind::NonCanonical, "KeyUsage has trailing zero bits"),
+            )
+        }
+        if value.content.len() == 3 && unused != 7 {
+            return Result::Err(invalid("unknown KeyUsage bit"))
+        }
+        let flags: Vec[bool] = Vec::new();
+        for index in 0..9 {
+            flags.push(
+                1 + index / 8 < value.content.len()
+                    && (value.content[1 + index / 8] & (128.to_u8() >> (index % 8).to_u8())) != 0,
+            );
+        }
+        Result::Ok(
+            KeyUsage {
+                digital_signature: flags[0],
+                content_commitment: flags[1],
+                key_encipherment: flags[2],
+                data_encipherment: flags[3],
+                key_agreement: flags[4],
+                key_cert_sign: flags[5],
+                crl_sign: flags[6],
+                encipher_only: flags[7],
+                decipher_only: flags[8],
+            },
+        )
+    }
+}
