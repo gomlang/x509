@@ -1,0 +1,110 @@
+package tests;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix::{Extension, KeyUsage, key_usage_oid};
+use std::testing;
+
+#[test]
+fn key_usage_encodes_all_named_bits_with_canonical_der() -> () {
+    for index in 0..9 {
+        let value = KeyUsage {
+            digital_signature: index == 0,
+            content_commitment: index == 1,
+            key_encipherment: index == 2,
+            data_encipherment: index == 3,
+            key_agreement: index == 4,
+            key_cert_sign: index == 5,
+            crl_sign: index == 6,
+            encipher_only: index == 7,
+            decipher_only: index == 8,
+        };
+        let encoded = testing::expect_ok(value.to_der(asn1::Limits::standard()), "encode");
+        let expected = if index < 8 {
+            Vec::from_array(
+                [3.to_u8(), 2.to_u8(), (7 - index).to_u8(), 128.to_u8() >> index.to_u8()],
+            )
+        } else {
+            b"\x03\x03\x07\x00\x80"
+        };
+        testing::assert(encoded == expected);
+        testing::assert_eq(
+            testing::expect_ok(
+                KeyUsage::from_der(encoded.as_slice(), asn1::Limits::standard()),
+                "decode",
+            ),
+            value,
+        );
+    }
+    let value = KeyUsage { key_cert_sign: true, crl_sign: true, ..KeyUsage::new() };
+    testing::assert(
+        testing::expect_ok(value.to_der(asn1::Limits::standard()), "CA") == b"\x03\x02\x01\x06",
+    );
+    let encoded = b"\x03\x03\x07\xff\x80";
+    let value = testing::expect_ok(
+        KeyUsage::from_der(encoded.as_slice(), asn1::Limits::standard()),
+        "all flags",
+    );
+    testing::assert(
+        value.digital_signature && value.content_commitment && value.key_encipherment
+            && value.data_encipherment
+            && value.key_agreement
+            && value.key_cert_sign
+            && value.crl_sign
+            && value.encipher_only
+            && value.decipher_only,
+    );
+    testing::assert(
+        testing::expect_ok(value.to_der(asn1::Limits::standard()), "all flags") == encoded,
+    );
+}
+
+#[test]
+fn key_usage_rejects_empty_unknown_and_noncanonical_bits_and_obeys_limits() -> () {
+    for encoded in[
+        b"\x03\x01\x00",
+        b"\x03\x02\x00\x00",
+        b"\x03\x02\x00\x80",
+        b"\x03\x03\x00\x80\x00",
+        b"\x03\x02\x07\x81",
+        b"\x03\x03\x06\x00\x40",
+        b"\x04\x02\x07\x80",
+        b"\x03\x02\x08\x80",
+        b"\x03\x02\x07",
+        b"\x03\x02\x07\x80\x00",
+    ] {
+        testing::assert_err(KeyUsage::from_der(encoded.as_slice(), asn1::Limits::standard()));
+    }
+    testing::assert_err(KeyUsage::new().to_der(asn1::Limits::standard()));
+    let value = KeyUsage { digital_signature: true, ..KeyUsage::new() };
+    for limits in[
+        asn1::Limits { max_bytes: 3, ..asn1::Limits::standard() },
+        asn1::Limits { max_elements: 0, ..asn1::Limits::standard() },
+        asn1::Limits { max_depth: -1, ..asn1::Limits::standard() },
+    ] {
+        testing::assert_err(value.to_der(limits));
+        testing::assert_err(KeyUsage::from_der(b"\x03\x02\x07\x80".as_slice(), limits));
+    }
+}
+
+#[test]
+fn key_usage_integrates_with_critical_extension() -> () {
+    let usage = KeyUsage { digital_signature: true, key_encipherment: true, ..KeyUsage::new() };
+    let extension = Extension {
+        oid: key_usage_oid(),
+        critical: true,
+        value_der: testing::expect_ok(usage.to_der(asn1::Limits::standard()), "usage"),
+    };
+    let wire = testing::expect_ok(extension.to_der(asn1::Limits::standard()), "extension");
+    let parsed = testing::expect_ok(
+        Extension::from_der(wire.as_slice(), asn1::Limits::standard()),
+        "parse extension",
+    );
+    testing::assert(parsed.critical && parsed.oid == key_usage_oid());
+    testing::assert_eq(
+        testing::expect_ok(
+            KeyUsage::from_der(parsed.value_der.as_slice(), asn1::Limits::standard()),
+            "usage",
+        ),
+        usage,
+    );
+}

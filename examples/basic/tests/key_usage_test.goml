@@ -1,0 +1,18 @@
+package tests;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix::{KeyUsage};
+use std::testing;
+
+#[test]
+fn downstream_key_usage_exposes_ninth_bit() -> () {
+    let usage = testing::expect_ok(
+        KeyUsage::from_der(b"\x03\x03\x07\x00\x80".as_slice(), asn1::Limits::standard()),
+        "decipherOnly",
+    );
+    testing::assert(usage.decipher_only && !usage.encipher_only);
+    testing::assert(
+        testing::expect_ok(usage.to_der(asn1::Limits::standard()), "encode")
+            == b"\x03\x03\x07\x00\x80",
+    );
+}
