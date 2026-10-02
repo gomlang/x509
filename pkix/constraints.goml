@@ -1,0 +1,65 @@
+package pkix;
+
+use ecosystem::asn1;
+
+#[derive(PartialEq)]
+pub struct BasicConstraints {
+    pub ca: bool,
+    pub path_length: Option[i64],
+}
+
+impl BasicConstraints {
+    fn validate(self: BasicConstraints) -> Result[(), asn1::Error] {
+        if let Some(length) = self.path_length {
+            if !self.ca || length < 0 {
+                return Result::Err(invalid("path length requires a CA and a nonnegative integer"))
+            }
+        }
+        Result::Ok(())
+    }
+
+    pub fn from_der(input: Slice[u8], limits: asn1::Limits) -> Result[BasicConstraints, asn1::Error] {
+        let fields = sequence(input, limits)?;
+        let mut index = 0;
+        let mut ca = false;
+        if fields.len() > 0 && fields[0].tag == 1 {
+            if fields[0].content != Vec::from_array([255]) {
+                return Result::Err(
+                    failure(asn1::ErrorKind::NonCanonical, "default CA false must be omitted"),
+                )
+            }
+            ca = true;
+            index += 1;
+        }
+        let mut path_length: Option[i64] = Option::None;
+        if index < fields.len() {
+            let field = fields[index];
+            let encoded = asn1::encode_tlv(field.tag, field.content.as_slice(), limits)?;
+            match asn1::decode_as(encoded.as_slice(), asn1::Schema::Integer, limits)? {
+                asn1::Value::Integer(length) => {
+                    path_length = Option::Some(length);
+                },
+                _ => return Result::Err(invalid("expected path length integer")),
+            }
+            index += 1;
+        }
+        if index != fields.len() {
+            return Result::Err(invalid("unexpected BasicConstraints field"))
+        }
+        let value = BasicConstraints { ca, path_length };
+        value.validate()?;
+        Result::Ok(value)
+    }
+
+    pub fn to_der(self: BasicConstraints, limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+        self.validate()?;
+        let fields: Vec[asn1::Value] = Vec::new();
+        if self.ca {
+            fields.push(asn1::Value::Boolean(true));
+        }
+        if let Some(length) = self.path_length {
+            fields.push(asn1::Value::Integer(length));
+        }
+        asn1::encode(asn1::Value::Sequence(fields), limits)
+    }
+}

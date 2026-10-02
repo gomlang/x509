@@ -4,6 +4,15 @@
 
 `Name` preserves the ordered sequence of RDNs and every multi-valued RDN's SET members. `Name::to_der` sorts each SET by the complete encoded DER element, as DER requires; `Name::from_der` rejects unsorted SETs. A `Name` may be empty because RFC 5280 permits an empty subject with a critical subject alternative name; applications must apply issuer and subject profile rules in their own certificate context. Attributes carry OID arcs and a `DirectoryValue`. UTF8String, PrintableString, IA5String, BMPString, and UniversalString are decoded to validated GoML strings. Legacy TeletexString bytes and unknown tag values are retained explicitly for round trips; they are not silently reinterpreted as UTF-8. Named OID helpers cover common name attributes, basic constraints, key usage, and subject alternative names.
 
+`BasicConstraints { ca, path_length }` provides typed DER encoding and decoding
+for [RFC 5280 section 4.2.1.9](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2.1.9).
+`to_der` omits the default false CA flag; `from_der` rejects explicit false,
+negative path lengths, a path length without `ca: true`, incorrect field order
+and extra fields. `None` means unconstrained; `Some(0)` is a real zero constraint.
+Path lengths are bounded to nonnegative `i64` values. Use the returned DER as
+`Extension.value_der` with `basic_constraints_oid()`. The caller still enforces
+certificate context, key usage, criticality and chain path-length semantics.
+
 `Extension` preserves the OID, critical flag, and the DER value inside its OCTET STRING. A false critical flag is omitted as the ASN.1 default; a decoder rejects an explicitly encoded false. `new_typed` and `decode_value` apply a caller-supplied `asn1::Schema` to the inner value. `encode_extensions` and `decode_extensions` handle the nonempty extension SEQUENCE and reject duplicate OIDs. `AlgorithmIdentifier` keeps optional parameters as explicit DER bytes; it does not infer algorithm-specific parameter rules.
 
 ```goml
