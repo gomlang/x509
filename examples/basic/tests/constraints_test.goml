@@ -1,0 +1,22 @@
+package tests;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix::{BasicConstraints};
+use std::testing;
+
+#[test]
+fn downstream_distinguishes_absent_and_zero_path_limit() -> () {
+    let constraints = testing::expect_ok(
+        BasicConstraints::from_der(
+            b"\x30\x06\x01\x01\xff\x02\x01\x00".as_slice(),
+            asn1::Limits::standard(),
+        ),
+        "CA constraint",
+    );
+    testing::assert(constraints.ca);
+    testing::assert(constraints.path_length == Option::Some(0));
+    testing::assert(
+        testing::expect_ok(constraints.to_der(asn1::Limits::standard()), "round trip")
+            == b"\x30\x06\x01\x01\xff\x02\x01\x00",
+    );
+}

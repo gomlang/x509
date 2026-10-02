@@ -1,0 +1,89 @@
+package tests;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix::{BasicConstraints, Extension, basic_constraints_oid};
+use std::testing;
+
+#[test]
+fn basic_constraints_preserve_defaults_zero_and_maximum_path_lengths() -> () {
+    for (value, expected) in[
+        (BasicConstraints { ca: false, path_length: Option::None }, b"\x30\x00"),
+        (BasicConstraints { ca: true, path_length: Option::None }, b"\x30\x03\x01\x01\xff"),
+        (
+            BasicConstraints { ca: true, path_length: Option::Some(0) },
+            b"\x30\x06\x01\x01\xff\x02\x01\x00",
+        ),
+        (
+            BasicConstraints { ca: true, path_length: Option::Some(128) },
+            b"\x30\x07\x01\x01\xff\x02\x02\x00\x80",
+        ),
+        (
+            BasicConstraints { ca: true, path_length: Option::Some(9223372036854775807) },
+            b"\x30\x0d\x01\x01\xff\x02\x08\x7f\xff\xff\xff\xff\xff\xff\xff",
+        ),
+    ] {
+        let encoded = testing::expect_ok(value.to_der(asn1::Limits::standard()), "encode");
+        testing::assert(encoded == expected);
+        testing::assert(
+            testing::expect_ok(
+                BasicConstraints::from_der(encoded.as_slice(), asn1::Limits::standard()),
+                "decode",
+            )
+                == value,
+        );
+    }
+}
+
+#[test]
+fn basic_constraints_reject_noncanonical_malformed_and_invalid_profile_values() -> () {
+    for encoded in[
+        b"\x30\x03\x01\x01\x00",
+        b"\x30\x03\x02\x01\x00",
+        b"\x30\x06\x01\x01\xff\x02\x01\xff",
+        b"\x30\x06\x02\x01\x00\x01\x01\xff",
+        b"\x30\x05\x01\x01\xff\x05\x00",
+        b"\x30\x09\x01\x01\xff\x02\x01\x00\x02\x01\x01",
+        b"\x30\x07\x01\x01\xff\x02\x02\x00\x01",
+        b"\x30\x0e\x01\x01\xff\x02\x09\x00\x80\x00\x00\x00\x00\x00\x00\x00",
+    ] {
+        testing::assert(
+            BasicConstraints::from_der(encoded.as_slice(), asn1::Limits::standard()).is_err(),
+        );
+    }
+    for value in[
+        BasicConstraints { ca: false, path_length: Option::Some(0) },
+        BasicConstraints { ca: true, path_length: Option::Some(-1) },
+    ] {
+        testing::assert(value.to_der(asn1::Limits::standard()).is_err());
+    }
+    let value = BasicConstraints { ca: true, path_length: Option::Some(0) };
+    let limits = asn1::Limits { max_bytes: 7, ..asn1::Limits::standard() };
+    testing::assert(value.to_der(limits).is_err());
+    testing::assert(
+        BasicConstraints::from_der(b"\x30\x06\x01\x01\xff\x02\x01\x00".as_slice(), limits).is_err(),
+    );
+}
+
+#[test]
+fn basic_constraints_integrate_with_extension_der() -> () {
+    let value = BasicConstraints { ca: true, path_length: Option::Some(1) };
+    let extension = Extension {
+        oid: basic_constraints_oid(),
+        critical: true,
+        value_der: testing::expect_ok(value.to_der(asn1::Limits::standard()), "value"),
+    };
+    let der = testing::expect_ok(extension.to_der(asn1::Limits::standard()), "extension");
+    let parsed = testing::expect_ok(
+        Extension::from_der(der.as_slice(), asn1::Limits::standard()),
+        "parse extension",
+    );
+    testing::assert(parsed.critical);
+    testing::assert(parsed.oid == basic_constraints_oid());
+    testing::assert(
+        testing::expect_ok(
+            BasicConstraints::from_der(parsed.value_der.as_slice(), asn1::Limits::standard()),
+            "constraints",
+        )
+            == value,
+    );
+}
