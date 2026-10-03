@@ -1,0 +1,17 @@
+package tests;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix;
+use std::testing;
+
+#[test]
+fn consumer_decodes_server_auth_and_preserves_unknown_purpose() -> () {
+    let wire = b"\x30\x0f\x06\x08\x2b\x06\x01\x05\x05\x07\x03\x01\x06\x03\x2a\x03\x04";
+    let value = testing::expect_ok(
+        pkix::ExtendedKeyUsage::from_der(wire.as_slice(), asn1::Limits::standard()),
+        "EKU",
+    );
+    testing::assert(value.contains(pkix::server_auth_oid()));
+    testing::assert(value.contains(Vec::from_array([1, 2, 3, 4])));
+    testing::assert(testing::expect_ok(value.to_der(asn1::Limits::standard()), "encode") == wire);
+}

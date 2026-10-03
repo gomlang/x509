@@ -1,0 +1,72 @@
+package pkix;
+
+use ecosystem::asn1;
+
+#[derive(PartialEq, Eq)]
+pub struct ExtendedKeyUsage {
+    pub purposes: Vec[Vec[u64]],
+}
+
+impl ExtendedKeyUsage {
+    pub fn from_der(input: Slice[u8], limits: asn1::Limits) -> Result[ExtendedKeyUsage, asn1::Error] {
+        let fields = sequence(input, limits)?;
+        if fields.is_empty() {
+            return Result::Err(invalid("ExtendedKeyUsage requires at least one purpose"))
+        }
+        let purposes = Vec::new();
+        for field in fields {
+            purposes.push(oid_value(field, limits)?);
+        }
+        Result::Ok(ExtendedKeyUsage { purposes })
+    }
+
+    pub fn to_der(self: ExtendedKeyUsage, limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+        if self.purposes.is_empty() {
+            return Result::Err(invalid("ExtendedKeyUsage requires at least one purpose"))
+        }
+        if self.purposes.len() >= limits.max_elements {
+            return Result::Err(limit("ExtendedKeyUsage exceeds element limit"))
+        }
+        let values = Vec::new();
+        for purpose in self.purposes {
+            values.push(asn1::Value::Oid(purpose));
+        }
+        asn1::encode(asn1::Value::Sequence(values), limits)
+    }
+
+    pub fn contains(self: ExtendedKeyUsage, purpose: Vec[u64]) -> bool {
+        self.purposes.contains(purpose)
+    }
+}
+
+pub fn extended_key_usage_oid() -> Vec[u64] {
+    Vec::from_array([2, 5, 29, 37])
+}
+
+pub fn any_extended_key_usage_oid() -> Vec[u64] {
+    Vec::from_array([2, 5, 29, 37, 0])
+}
+
+pub fn server_auth_oid() -> Vec[u64] {
+    Vec::from_array([1, 3, 6, 1, 5, 5, 7, 3, 1])
+}
+
+pub fn client_auth_oid() -> Vec[u64] {
+    Vec::from_array([1, 3, 6, 1, 5, 5, 7, 3, 2])
+}
+
+pub fn code_signing_oid() -> Vec[u64] {
+    Vec::from_array([1, 3, 6, 1, 5, 5, 7, 3, 3])
+}
+
+pub fn email_protection_oid() -> Vec[u64] {
+    Vec::from_array([1, 3, 6, 1, 5, 5, 7, 3, 4])
+}
+
+pub fn time_stamping_oid() -> Vec[u64] {
+    Vec::from_array([1, 3, 6, 1, 5, 5, 7, 3, 8])
+}
+
+pub fn ocsp_signing_oid() -> Vec[u64] {
+    Vec::from_array([1, 3, 6, 1, 5, 5, 7, 3, 9])
+}

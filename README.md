@@ -23,6 +23,18 @@ encoding. Use `key_usage_oid()` and `Extension.value_der` to carry the value.
 Algorithm-specific flag combinations, CA consistency and trust remain caller
 policy; this type does not reject combinations the RFC leaves unrestricted.
 
+`ExtendedKeyUsage { purposes }` encodes and decodes the nonempty OID sequence in
+[RFC 5280 section 4.2.1.12](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2.1.12).
+Its `to_der` / `from_der` methods enforce DER and ASN.1 byte, element, depth and
+OID-arc limits. Unknown purposes, order and duplicates are preserved; decoded
+OID vectors own their data. `contains(oid)` performs exact membership testing.
+Helpers provide `extended_key_usage_oid`, `any_extended_key_usage_oid`,
+`server_auth_oid`, `client_auth_oid`, `code_signing_oid`, `email_protection_oid`,
+`time_stamping_oid` and `ocsp_signing_oid`. Place its DER in `Extension.value_der`
+with `extended_key_usage_oid()`. Exact membership does not expand
+`anyExtendedKeyUsage` into other OIDs; certificate purpose, criticality and key
+usage combination policies remain the caller's responsibility.
+
 `Extension` preserves the OID, critical flag, and the DER value inside its OCTET STRING. A false critical flag is omitted as the ASN.1 default; a decoder rejects an explicitly encoded false. `new_typed` and `decode_value` apply a caller-supplied `asn1::Schema` to the inner value. `encode_extensions` and `decode_extensions` handle the nonempty extension SEQUENCE and reject duplicate OIDs. `AlgorithmIdentifier` keeps optional parameters as explicit DER bytes; it does not infer algorithm-specific parameter rules.
 
 ```goml

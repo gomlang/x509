@@ -1,0 +1,133 @@
+package tests;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix;
+use pkix::{ExtendedKeyUsage, Extension};
+use std::testing;
+
+#[test]
+fn extended_key_usage_matches_known_der_and_preserves_purpose_order() -> () {
+    let value = ExtendedKeyUsage {
+        purposes: Vec::from_array([pkix::server_auth_oid(), pkix::client_auth_oid()]),
+    };
+    let expected = b"\x30\x14\x06\x08\x2b\x06\x01\x05\x05\x07\x03\x01\x06\x08\x2b\x06\x01\x05\x05\x07\x03\x02";
+    testing::assert(testing::expect_ok(value.to_der(asn1::Limits::standard()), "DER") == expected);
+    let decoded = testing::expect_ok(
+        ExtendedKeyUsage::from_der(expected.as_slice(), asn1::Limits::standard()),
+        "parse",
+    );
+    testing::assert(decoded == value);
+    testing::assert(decoded.contains(pkix::client_auth_oid()));
+    testing::assert(!decoded.contains(pkix::code_signing_oid()));
+    for (purpose, last) in[
+        (pkix::code_signing_oid(), 3),
+        (pkix::email_protection_oid(), 4),
+        (pkix::time_stamping_oid(), 8),
+        (pkix::ocsp_signing_oid(), 9),
+    ] {
+        let wire = b"\x30\x0a\x06\x08\x2b\x06\x01\x05\x05\x07\x03";
+        wire.push(last.to_u8());
+        testing::assert(
+            testing::expect_ok(
+                ExtendedKeyUsage { purposes: Vec::from_array([purpose]) }.to_der(
+                    asn1::Limits::standard(),
+                ),
+                "known purpose",
+            )
+                == wire,
+        );
+    }
+    let any = ExtendedKeyUsage { purposes: Vec::from_array([pkix::any_extended_key_usage_oid()]) };
+    testing::assert(
+        testing::expect_ok(any.to_der(asn1::Limits::standard()), "any")
+            == b"\x30\x06\x06\x04\x55\x1d\x25\x00",
+    );
+    testing::assert(!any.contains(pkix::server_auth_oid()));
+}
+
+#[test]
+fn unknown_and_repeated_purposes_are_data_and_decoding_detaches_input() -> () {
+    let custom: Vec[u64] = Vec::from_array([1, 2, 3, 4]);
+    let value = ExtendedKeyUsage {
+        purposes: Vec::from_array([custom, pkix::server_auth_oid(), custom]),
+    };
+    let encoded = testing::expect_ok(value.to_der(asn1::Limits::standard()), "unknown purpose");
+    let decoded = testing::expect_ok(
+        ExtendedKeyUsage::from_der(encoded.as_slice(), asn1::Limits::standard()),
+        "decode",
+    );
+    testing::assert(decoded == value);
+    testing::assert(decoded.contains(custom));
+    encoded[encoded.len() - 1] = 9;
+    testing::assert(decoded == value);
+    decoded.purposes[0][3] = 8;
+    testing::assert(value.purposes[0] == custom);
+    testing::assert(decoded.purposes[2] == custom);
+}
+
+#[test]
+fn extended_key_usage_rejects_malformed_der_empty_lists_and_limits() -> () {
+    let standard = asn1::Limits::standard();
+    for wire in[
+        b"\x30\x00",
+        b"\x31\x03\x06\x01\x2a",
+        b"\x30\x02\x05\x00",
+        b"\x30\x03\x06\x01\x80",
+        b"\x30\x04\x06\x02\x80\x2a",
+        b"\x30\x81\x03\x06\x01\x2a",
+        b"\x30\x03\x06\x01\x2a\x00",
+        b"\x30\x03\x06\x02\x2a",
+    ] {
+        testing::assert_err(ExtendedKeyUsage::from_der(wire.as_slice(), standard));
+    }
+    testing::assert_err(ExtendedKeyUsage { purposes: Vec::new() }.to_der(standard));
+    for oid in[
+        Vec::from_array([1.to_u64()]),
+        Vec::from_array([3.to_u64(), 0]),
+        Vec::from_array([1.to_u64(), 40]),
+    ] {
+        testing::assert_err(ExtendedKeyUsage { purposes: Vec::from_array([oid]) }.to_der(standard));
+    }
+    let value = ExtendedKeyUsage { purposes: Vec::from_array([pkix::server_auth_oid()]) };
+    let wire = testing::expect_ok(value.to_der(standard), "valid");
+    let exact = asn1::Limits {
+        max_bytes: wire.len(),
+        max_elements: 2,
+        max_oid_arcs: 9,
+        max_depth: 1,
+    };
+    testing::assert_ok(value.to_der(exact));
+    testing::assert_ok(ExtendedKeyUsage::from_der(wire.as_slice(), exact));
+    for bounds in[
+        asn1::Limits { max_bytes: wire.len() - 1, ..exact },
+        asn1::Limits { max_elements: 1, ..exact },
+        asn1::Limits { max_oid_arcs: 8, ..exact },
+        asn1::Limits { max_depth: 0, ..exact },
+    ] {
+        testing::assert_err(value.to_der(bounds));
+        testing::assert_err(ExtendedKeyUsage::from_der(wire.as_slice(), bounds));
+    }
+}
+
+#[test]
+fn extended_key_usage_roundtrips_through_extension_container() -> () {
+    let value = ExtendedKeyUsage { purposes: Vec::from_array([pkix::server_auth_oid()]) };
+    let extension = Extension {
+        oid: pkix::extended_key_usage_oid(),
+        critical: false,
+        value_der: testing::expect_ok(value.to_der(asn1::Limits::standard()), "purpose"),
+    };
+    let wire = testing::expect_ok(extension.to_der(asn1::Limits::standard()), "extension");
+    let decoded = testing::expect_ok(
+        Extension::from_der(wire.as_slice(), asn1::Limits::standard()),
+        "extension",
+    );
+    testing::assert(decoded.oid == Vec::from_array([2, 5, 29, 37]));
+    testing::assert(
+        testing::expect_ok(
+            ExtendedKeyUsage::from_der(decoded.value_der.as_slice(), asn1::Limits::standard()),
+            "purposes",
+        )
+            == value,
+    );
+}
