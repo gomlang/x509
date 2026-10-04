@@ -154,7 +154,7 @@ fn encode_directory(value: DirectoryValue, limits: asn1::Limits) -> Result[Vec[u
         },
         DirectoryValue::Raw(raw) => {
             let encoded = asn1::encode_tlv(raw.tag, raw.content.as_slice(), limits)?;
-            asn1::validate_der(encoded.as_slice(), limits)?;
+            let _ = decode_directory(raw, limits)?;
             Result::Ok(encoded)
         },
     }

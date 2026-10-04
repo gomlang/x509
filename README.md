@@ -55,6 +55,10 @@ fn subject_der() -> Result[Vec[u8], asn1::Error] {
 
 The default ASN.1 limits are 1 MiB of input/output, 32 levels, 10,000 elements, and 64 OID arcs; callers can lower them. Known primitive types and string forms are validated. For unknown raw values, the library validates DER tag/length structure and nested constructed elements but cannot validate type-specific constraints without a schema. An extension's OCTET STRING must contain exactly one structurally valid DER value. Errors are recoverable `asn1::Error` values. Names are represented as data, not normalized for RFC 4514 comparison or identity matching.
 
+`DirectoryValue::Raw` with a known string tag applies the same nonempty-string,
+alphabet and Unicode scalar validation as the corresponding typed variant.
+Unknown tags retain their structurally valid DER bytes.
+
 Run `(cd ../verification && just ecosystem-test x509)` from this library repository to verify the library and example, including independent downstream verification.
 
 ## Development and examples
