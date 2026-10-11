@@ -59,16 +59,16 @@ The default ASN.1 limits are 1 MiB of input/output, 32 levels, 10,000 elements, 
 alphabet and Unicode scalar validation as the corresponding typed variant.
 Unknown tags retain their structurally valid DER bytes.
 
-Run `(cd ../verification && just ecosystem-test x509)` from this library repository to verify the library and example, including independent downstream verification.
+Run `(cd ../workflows && just ecosystem-test x509)` from this library repository to verify the library and example, including independent downstream verification.
 
 ## Development and examples
 
-Requires a current GoML toolchain supporting unversioned registry dependencies; see [the pinned ecosystem toolchain](https://github.com/gomlang/verification/blob/main/ci/toolchain.json). The `examples/basic/` example shares the root manifest and its dependencies. From the library root, run:
+Requires a current GoML toolchain supporting unversioned registry dependencies; see [the pinned ecosystem toolchain](https://github.com/gomlang/workflows/blob/main/ci/toolchain.json). The `examples/basic/` example shares the root manifest and its dependencies. From the library root, run:
 
 ```sh
 goml run --example basic
 goml test
-(cd ../verification && just ecosystem-test x509)
+(cd ../workflows && just ecosystem-test x509)
 ```
 
 `goml test` builds the example and runs its tests. The ecosystem verifier uses an isolated registry snapshot and runs the library-specific smoke and compatibility checks.
