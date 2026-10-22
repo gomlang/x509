@@ -72,3 +72,12 @@ goml test
 ```
 
 `goml test` builds the example and runs its tests. The ecosystem verifier uses an isolated registry snapshot and runs the library-specific smoke and compatibility checks.
+
+`pkix::SubjectAltName` provides ordered `GeneralName::Dns/Rfc822/Uri/Ip` values
+with `from_der/to_der` and `from_extension/to_extension`. DNS, email and URI names
+require nonempty IA5 bytes; IP values require exactly 4 or 16 octets. Empty SAN
+sequences and unsupported GeneralName tags are rejected. Order and duplicate
+names are preserved, and existing ASN.1 byte/depth/element quotas apply.
+This is a DER metadata codec, not DNS/email/URI syntax validation, hostname
+matching, name constraints, certificate verification or trust-chain building.
+See RFC 5280 §4.2.1.6. Independent SAN DER comes from Go crypto/x509.

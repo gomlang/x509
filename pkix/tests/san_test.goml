@@ -1,0 +1,55 @@
+package tests;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix::{SubjectAltName, GeneralName};
+use std::testing;
+
+#[test]
+fn san_order_duplicates_and_validation() -> () {
+    let limits = asn1::Limits::standard();
+    let san = SubjectAltName {
+        names: Vec::from_array(
+            [
+                GeneralName::Dns("example.com"),
+                GeneralName::Ip(b"\x7f\x00\x00\x01"),
+                GeneralName::Dns("example.com"),
+                GeneralName::Rfc822("user@example.com"),
+                GeneralName::Uri("https://example.com/"),
+            ],
+        ),
+    };
+    let encoded = testing::expect_ok(san.to_der(limits), "encode");
+    testing::assert(
+        testing::expect_ok(SubjectAltName::from_der(encoded.as_slice(), limits), "decode") == san,
+    );
+    testing::assert(
+        testing::expect_ok(
+            SubjectAltName::from_extension(
+                testing::expect_ok(san.to_extension(true, limits), "extension"),
+                limits,
+            ),
+            "extension decode",
+        )
+            == san,
+    );
+    for wire in[
+        b"\x30\x00",
+        b"\x30\x02\x82\x00",
+        b"\x30\x03\x82\x01\xff",
+        b"\x30\x03\x87\x01\x00",
+        b"\x30\x03\xa2\x01\x00",
+        b"\x30\x03\x83\x01\x00",
+    ] {
+        testing::assert(SubjectAltName::from_der(wire.as_slice(), limits).is_err());
+    }
+    testing::assert(san.to_der(asn1::Limits { max_elements: 5, ..limits }).is_err());
+    testing::assert(
+        SubjectAltName::from_der(
+            encoded.as_slice(),
+            asn1::Limits { max_bytes: encoded.len() - 1, ..limits },
+        ).is_err(),
+    );
+    testing::assert(
+        SubjectAltName { names: Vec::from_array([GeneralName::Dns("中文")]) }.to_der(limits).is_err(),
+    );
+}

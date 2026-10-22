@@ -1,0 +1,19 @@
+package tests;
+
+use ecosystem::asn1;
+use ecosystem::x509::pkix::{SubjectAltName, GeneralName};
+use std::testing;
+
+#[test]
+fn go_x509_san_der() -> () {
+    let der = b"\x30\x5e\x82\x0b\x65\x78\x61\x6d\x70\x6c\x65\x2e\x63\x6f\x6d\x82\x0b\x65\x78\x61\x6d\x70\x6c\x65\x2e\x63\x6f\x6d\x81\x10\x75\x73\x65\x72\x40\x65\x78\x61\x6d\x70\x6c\x65\x2e\x63\x6f\x6d\x87\x04\x7f\x00\x00\x01\x87\x10\x20\x01\x0d\xb8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x86\x18\x68\x74\x74\x70\x73\x3a\x2f\x2f\x65\x78\x61\x6d\x70\x6c\x65\x2e\x63\x6f\x6d\x2f\x70\x61\x74\x68";
+    let san = testing::expect_ok(
+        SubjectAltName::from_der(der.as_slice(), asn1::Limits::standard()),
+        "Go SAN DER",
+    );
+    testing::assert_eq(san.names.len(), 6);
+    testing::assert(san.names[0] == GeneralName::Dns("example.com"));
+    testing::assert(san.names[2] == GeneralName::Rfc822("user@example.com"));
+    testing::assert(san.names[3] == GeneralName::Ip(b"\x7f\x00\x00\x01"));
+    testing::assert(testing::expect_ok(san.to_der(asn1::Limits::standard()), "encode") == der);
+}

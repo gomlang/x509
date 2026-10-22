@@ -1,0 +1,103 @@
+package pkix;
+
+use ecosystem::asn1;
+
+#[derive(PartialEq, Eq)]
+pub enum GeneralName {
+    Dns(string),
+    Rfc822(string),
+    Uri(string),
+    Ip(Vec[u8]),
+}
+
+#[derive(PartialEq, Eq)]
+pub struct SubjectAltName {
+    pub names: Vec[GeneralName],
+}
+
+fn san_ia5(value: Slice[u8]) -> Result[string, asn1::Error] {
+    if value.len() == 0 {
+        return Result::Err(invalid("empty GeneralName IA5String"))
+    }
+    for octet in value {
+        if octet > 127 {
+            return Result::Err(invalid("GeneralName requires IA5String"))
+        }
+    }
+    Result::Ok(string_from_utf8(value.to_vec()).1)
+}
+
+impl SubjectAltName {
+    pub fn from_der(input: Slice[u8], limits: asn1::Limits) -> Result[SubjectAltName, asn1::Error] {
+        let fields = sequence(input, limits)?;
+        if fields.is_empty() {
+            return Result::Err(invalid("SubjectAltName must not be empty"))
+        }
+        let names = Vec::new();
+        for field in fields {
+            names.push(
+                match field.tag {
+                    129 => GeneralName::Rfc822(san_ia5(field.content.as_slice())?),
+                    130 => GeneralName::Dns(san_ia5(field.content.as_slice())?),
+                    134 => GeneralName::Uri(san_ia5(field.content.as_slice())?),
+                    135 => {
+                        if field.content.len() != 4 && field.content.len() != 16 {
+                            return Result::Err(invalid("SAN IP requires 4 or 16 octets"))
+                        }
+                        GeneralName::Ip(field.content)
+                    },
+                    _ => return Result::Err(
+                        failure(asn1::ErrorKind::InvalidTag, "unsupported GeneralName tag"),
+                    ),
+                },
+            );
+        }
+        Result::Ok(SubjectAltName { names })
+    }
+
+    pub fn to_der(self: SubjectAltName, limits: asn1::Limits) -> Result[Vec[u8], asn1::Error] {
+        if self.names.is_empty() {
+            return Result::Err(invalid("SubjectAltName must not be empty"))
+        }
+        if self.names.len() >= limits.max_elements {
+            return Result::Err(limit("SubjectAltName element limit"))
+        }
+        let encoded = Vec::new();
+        for name in self.names {
+            let (tag, content) = match name {
+                GeneralName::Dns(value) => (130.to_u8(), value.to_bytes()),
+                GeneralName::Rfc822(value) => (129.to_u8(), value.to_bytes()),
+                GeneralName::Uri(value) => (134.to_u8(), value.to_bytes()),
+                GeneralName::Ip(value) => (135.to_u8(), value),
+            };
+            if tag == 135 {
+                if content.len() != 4 && content.len() != 16 {
+                    return Result::Err(invalid("SAN IP requires 4 or 16 octets"))
+                }
+            } else {
+                let _ = san_ia5(content.as_slice())?;
+            }
+            encoded.push(asn1::encode_tlv(tag, content.as_slice(), limits)?);
+        }
+        container(48, encoded, limits)
+    }
+
+    pub fn to_extension(self: SubjectAltName, critical: bool, limits: asn1::Limits) -> Result[
+        Extension,
+        asn1::Error,
+    ] {
+        Result::Ok(
+            Extension { oid: subject_alt_name_oid(), critical, value_der: self.to_der(limits)? },
+        )
+    }
+
+    pub fn from_extension(extension: Extension, limits: asn1::Limits) -> Result[
+        SubjectAltName,
+        asn1::Error,
+    ] {
+        if extension.oid != subject_alt_name_oid() {
+            return Result::Err(invalid("expected subjectAltName extension"))
+        }
+        SubjectAltName::from_der(extension.value_der.as_slice(), limits)
+    }
+}
